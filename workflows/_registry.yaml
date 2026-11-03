@@ -1,0 +1,14 @@
+workflows:
+  - id: cinematic_short
+    title: Cinematic Short
+    description: Generate a vertical cinematic short from a natural-language idea.
+    file: cinematic_short.py
+    entry: run
+    builtin: true
+
+  - id: video_clipper
+    title: Video Clipper
+    description: Cut interesting segments from an input video into a highlight reel.
+    file: video_clipper.py
+    entry: run
+    builtin: true

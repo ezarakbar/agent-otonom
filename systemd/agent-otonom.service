@@ -1,0 +1,14 @@
+[Unit]
+Description=AGENT OTONOM WebGUI + API
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/agent-otonom
+Environment=PYTHONUNBUFFERED=1
+ExecStart=%h/agent-otonom/.venv/bin/python -m agent_otonom serve
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

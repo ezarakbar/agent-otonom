@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AGENT OTONOM</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/styles.css" />
+</head>
+<body>
+  <div class="bg-grid" aria-hidden="true"></div>
+  <div class="app">
+    <aside class="rail">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true"></div>
+        <div>
+          <h1>AGENT OTONOM</h1>
+          <p class="tag">Local Autonomous Studio</p>
+        </div>
+      </div>
+
+      <section class="panel" id="cap-panel">
+        <h2>Capability</h2>
+        <div id="cap-body" class="cap-body">Memuat…</div>
+      </section>
+
+      <section class="panel">
+        <h2>Workflows</h2>
+        <ul id="wf-list" class="wf-list"></ul>
+      </section>
+
+      <section class="panel quiet">
+        <h2>Jobs</h2>
+        <ul id="job-list" class="job-list"></ul>
+      </section>
+    </aside>
+
+    <main class="stage">
+      <header class="stage-head">
+        <div>
+          <p class="eyebrow">Chat Control</p>
+          <h2 class="stage-title">Instruksikan agen dalam bahasa natural</h2>
+        </div>
+        <div class="conn">
+          <span id="conn-dot" class="dot"></span>
+          <span id="conn-label">Menghubungkan…</span>
+        </div>
+      </header>
+
+      <div id="chat" class="chat" aria-live="polite"></div>
+
+      <div id="preview" class="preview hidden">
+        <div class="preview-meta">
+          <strong>Preview</strong>
+          <span id="preview-path"></span>
+        </div>
+        <video id="preview-video" controls playsinline></video>
+      </div>
+
+      <form id="composer" class="composer">
+        <label class="upload">
+          <input type="file" id="file" accept="video/*" hidden />
+          <span>Upload video</span>
+        </label>
+        <textarea id="input" rows="2" placeholder="Contoh: Buatkan film sinematik tentang pelabuhan di senja…" required></textarea>
+        <button type="submit" id="send">Kirim</button>
+      </form>
+      <p id="upload-hint" class="hint"></p>
+    </main>
+  </div>
+  <dialog id="confirm-dlg">
+    <form method="dialog" class="dlg">
+      <h3>Generate workflow baru?</h3>
+      <p id="confirm-text"></p>
+      <div class="dlg-actions">
+        <button value="cancel" class="ghost">Batal</button>
+        <button value="ok" id="confirm-ok">Generate & Jalankan</button>
+      </div>
+    </form>
+  </dialog>
+  <script src="/assets/app.js"></script>
+</body>
+</html>

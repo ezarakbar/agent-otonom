@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-otonom"
+version = "0.1.0"
+description = "AGENT OTONOM — Local autonomous AI agent with dynamic workflow routing"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+authors = [{ name = "ezarakbar" }]
+dependencies = [
+  "fastapi>=0.115.0",
+  "uvicorn[standard]>=0.32.0",
+  "httpx>=0.27.0",
+  "pydantic>=2.9.0",
+  "pydantic-settings>=2.6.0",
+  "aiosqlite>=0.20.0",
+  "rich>=13.9.0",
+  "python-multipart>=0.0.12",
+  "pyyaml>=6.0.2",
+  "aiofiles>=24.1.0",
+]
+
+[project.optional-dependencies]
+dev = ["ruff>=0.7.0", "pytest>=8.3.0", "pytest-asyncio>=0.24.0"]
+
+[project.scripts]
+agent-otonom = "agent_otonom.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+agent_otonom = ["py.typed"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
