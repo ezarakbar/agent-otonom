@@ -11,8 +11,8 @@ Natural-language prompts are routed to existing workflows or used to **generate*
 2. **Intent Analyzer** — heuristic + Ollama JSON classification → workflow id.
 3. **Dynamic Workflow Manager** — catalog lookup → enqueue, or generate+sandbox+register.
 4. **Job Queue** — asyncio workers + SQLite persistence; UI never blocks on long renders.
-5. **Engine Adapters** — LLM / Voice / Vision / FFmpeg with health checks & degrade paths.
-6. **Capability Probe** — detects OS, RAM, GPU vendor, encoders, optional services.
+5. **Engine Adapters** — LLM (Ollama) · **Vision (ComfyUI)** · **Voice (GPT-SoVITS)** · FFmpeg.
+6. **Capability Probe** — detects OS, RAM, GPU, encoders, and **requires** ComfyUI + GPT-SoVITS unless `ALLOW_ENGINE_FALLBACK=true`.
 
 ## Data flow
 
@@ -37,5 +37,6 @@ User prompt → /api/chat → IntentAnalyzer → WorkflowManager
 ## Non-goals (v1)
 
 - No automatic upload to YouTube/social platforms.
-- No hard dependency on CUDA / NVENC / ComfyUI / GPT-SoVITS.
+- No hard dependency on CUDA / NVENC (AMD AMF and libx264 remain valid).
+- ComfyUI and GPT-SoVITS **are** first-class media engines (not optional slideshow/TTS toys).
 - No Celery/Redis required (portable asyncio + SQLite).

@@ -48,9 +48,10 @@ agent-otonom serve
 |------|----------|-------|
 | Python 3.11+ | yes | 3.12 recommended |
 | FFmpeg | yes | with ffprobe |
-| Ollama + model | yes for LLM | default `qwen2.5:3b` |
-| Piper / espeak-ng | recommended | TTS fallbacks |
-| GPT-SoVITS / ComfyUI | optional | auto-detected if running |
+| Ollama + model | yes | naskah / storyboard (`qwen2.5:3b`) |
+| ComfyUI | yes | **engine utama image & video** (`:8188`) |
+| GPT-SoVITS | yes | **engine utama audio** (`:9880`) |
+| Piper / espeak-ng | no | hanya jika `ALLOW_ENGINE_FALLBACK=true` |
 
 ## CLI
 
@@ -69,7 +70,7 @@ See [docs/00-architecture.md](docs/00-architecture.md).
 ```
 Chat → Intent Router → Workflow Manager → Async Queue
                          ↘ generate+sandbox if missing
-Engines: Ollama · Voice(SoVITS/Piper/espeak) · Vision(Comfy/slideshow) · FFmpeg
+Engines: Ollama · **GPT-SoVITS (audio)** · **ComfyUI (image/video)** · FFmpeg
 ```
 
 Hardware probe picks encoder automatically (**AMF** on AMD, **NVENC** on NVIDIA, etc.).

@@ -28,6 +28,20 @@ def build_engines(settings: Settings, capability: CapabilityReport) -> EngineHub
     )
     ffmpeg = FFmpegEngine(encoder=capability.video_encoder)
     llm = OllamaEngine(settings.ollama_base_url, settings.ollama_model)
-    voice = VoiceEngine(settings.sovits_base_url, piper_bin=piper_bin or "", piper_model=piper_model or "")
-    vision = VisionEngine(settings.comfyui_base_url, ffmpeg)
+    voice = VoiceEngine(
+        settings.sovits_base_url,
+        piper_bin=piper_bin or "",
+        piper_model=piper_model or "",
+        ref_audio=settings.sovits_ref_audio,
+        prompt_text=settings.sovits_prompt_text,
+        prompt_lang=settings.sovits_prompt_lang,
+        allow_fallback=settings.allow_engine_fallback,
+        voices_dir=settings.agent_root / "models" / "sovits",
+    )
+    vision = VisionEngine(
+        settings.comfyui_base_url,
+        ffmpeg,
+        checkpoint=settings.comfy_checkpoint,
+        allow_fallback=settings.allow_engine_fallback,
+    )
     return EngineHub(llm=llm, voice=voice, vision=vision, ffmpeg=ffmpeg, capability=capability)

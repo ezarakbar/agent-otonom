@@ -202,19 +202,33 @@ async def probe(settings: Settings | None = None) -> CapabilityReport:
     if not ollama_ok:
         notes.append("Ollama not reachable — start `ollama serve` and pull a model.")
 
-    sovits_ok = await _http_ok(settings.sovits_base_url)
+    sovits_ok = await _http_ok(settings.sovits_base_url) or await _http_ok(
+        f"{settings.sovits_base_url.rstrip('/')}/tts"
+    )
     engines["gpt_sovits"] = {
         "available": sovits_ok,
         "base_url": settings.sovits_base_url,
-        "required": False,
+        "required": not settings.allow_engine_fallback,
+        "role": "primary_audio",
     }
+    if not sovits_ok:
+        notes.append(
+            "GPT-SoVITS tidak aktif — engine utama audio. Jalankan API di "
+            f"{settings.sovits_base_url} (python api_v2.py -p 9880)."
+        )
 
-    comfy_ok = await _http_ok(settings.comfyui_base_url)
+    comfy_ok = await _http_ok(f"{settings.comfyui_base_url.rstrip('/')}/system_stats")
     engines["comfyui"] = {
         "available": comfy_ok,
         "base_url": settings.comfyui_base_url,
-        "required": False,
+        "required": not settings.allow_engine_fallback,
+        "role": "primary_image_video",
     }
+    if not comfy_ok:
+        notes.append(
+            "ComfyUI tidak aktif — engine utama image/video. Jalankan ComfyUI di "
+            f"{settings.comfyui_base_url}."
+        )
 
     piper_path = settings.piper_bin or shutil.which("piper") or _find_local_piper(settings)
     engines["piper"] = {
@@ -222,11 +236,13 @@ async def probe(settings: Settings | None = None) -> CapabilityReport:
         "bin": piper_path or "",
         "model": settings.piper_model or _find_local_piper_model(settings) or "",
         "required": False,
+        "role": "audio_fallback",
     }
 
     engines["espeak"] = {
         "available": tools["espeak"],
         "required": False,
+        "role": "audio_fallback",
     }
 
     engines["ffmpeg"] = {

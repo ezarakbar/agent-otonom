@@ -12,10 +12,12 @@
 
 ## v0.2 — Stronger media
 
-- [ ] Bundle ComfyUI workflow JSON for still / I2V when API is up
-- [ ] GPT-SoVITS first-class voice profiles (speaker refs)
+- [x] ComfyUI as primary image engine (live txt2img via `/prompt`, not a stub)
+- [x] GPT-SoVITS as primary audio engine (api_v2 `/tts` + legacy shapes)
+- [x] Storyboard JSON so visuals follow the user prompt
+- [ ] Native I2V (Wan / SVD) when those Comfy nodes exist
+- [ ] GPT-SoVITS speaker profiles UI
 - [ ] Better clipper: scene-detect via PySceneDetect
-- [ ] Indonesian Piper voice pack in installer
 
 ## v0.3 — Autonomy hardening
 

@@ -3,10 +3,10 @@
 ## cinematic_short
 
 1. Intent → `cinematic_short`
-2. LLM writes 65–110 word voiceover (ID/EN)
-3. Voice engine synthesizes WAV (SoVITS → Piper → espeak)
-4. Vision creates scene stills (ComfyUI if available, else color-card Ken-Burns frames)
-5. FFmpeg slideshow + AAC mux → optional drawtext → `outputs/<job>/final.mp4`
+2. LLM writes a **storyboard JSON**: voiceover + per-scene English `visual_prompt` that must match the user topic
+3. **GPT-SoVITS** synthesizes the full voiceover WAV
+4. **ComfyUI** txt2img for each visual prompt (real stills, not color cards)
+5. FFmpeg Ken-Burns + AAC mux → `outputs/<job>/final.mp4`
 
 ## video_clipper
 
