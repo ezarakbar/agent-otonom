@@ -14,14 +14,18 @@
   const previewPath = document.getElementById("preview-path");
   const dlg = document.getElementById("confirm-dlg");
   const confirmText = document.getElementById("confirm-text");
+  const confirmTitle = document.getElementById("confirm-title");
+  const optionList = document.getElementById("option-list");
+  const confirmOk = document.getElementById("confirm-ok");
 
   let uploadPath = null;
-  let pendingIdea = null;
+  let uploadKind = null;
+  let pending = null; // {kind, idea, brief, workflow, selectedOption}
 
   function addMsg(role, text, extra = "") {
     const el = document.createElement("div");
     el.className = `msg ${role}`;
-    el.innerHTML = `${escapeHtml(text)}${extra ? `<span class="meta">${escapeHtml(extra)}</span>` : ""}`;
+    el.innerHTML = `${formatMessage(text)}${extra ? `<span class="meta">${escapeHtml(extra)}</span>` : ""}`;
     chat.appendChild(el);
     chat.scrollTop = chat.scrollHeight;
     return el;
@@ -32,6 +36,17 @@
       .replaceAll("&", "&amp;")
       .replaceAll("<", "&lt;")
       .replaceAll(">", "&gt;");
+  }
+
+  function formatMessage(text) {
+    // light markdown: **bold**, lines, links [t](u)
+    let s = escapeHtml(text);
+    s = s.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+    s = s.replace(/\[(.+?)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    s = s.replace(/^### (.+)$/gm, "<h4>$1</h4>");
+    s = s.replace(/^## (.+)$/gm, "<h3>$1</h3>");
+    s = s.replace(/\n/g, "<br/>");
+    return s;
   }
 
   async function refreshCapability() {
@@ -120,9 +135,7 @@
     } else if (ev.kind === "preview" && ev.path) {
       showPreview(ev.path);
     } else if (ev.kind === "confirm") {
-      pendingIdea = (ev.data && ev.data.idea) || pendingIdea;
-      confirmText.textContent = ev.message;
-      dlg.showModal();
+      openConfirmFromEvent(ev);
     }
   }
 
@@ -130,6 +143,63 @@
     preview.classList.remove("hidden");
     previewPath.textContent = path;
     previewVideo.src = `/api/media?path=${encodeURIComponent(path)}`;
+  }
+
+  function openConfirmFromEvent(ev) {
+    const data = ev.data || {};
+    const kind = data.action === "confirm_production" ? "production_brief" : "dynamic_workflow";
+    pending = {
+      kind,
+      idea: data.idea || pending?.idea,
+      brief: data.brief || null,
+      workflow: data.workflow,
+      selectedOption: data.recommended_option || (data.options && data.options[0] && data.options[0].id) || null,
+    };
+    confirmTitle.textContent =
+      kind === "production_brief" ? "Konfirmasi brief produksi" : "Generate workflow baru?";
+    confirmText.innerHTML = formatMessage(ev.message || "");
+    renderOptions(data.options || [], pending.selectedOption);
+    confirmOk.textContent =
+      kind === "production_brief" ? "Render & Pack Upload" : "Generate & Jalankan";
+    dlg.showModal();
+  }
+
+  function openConfirmFromChat(data) {
+    pending = {
+      kind: data.confirm_kind || "production_brief",
+      idea: data.idea || input.value,
+      brief: data.brief || null,
+      workflow: data.workflow,
+      selectedOption: data.recommended_option || (data.options && data.options[0] && data.options[0].id) || null,
+    };
+    confirmTitle.textContent =
+      pending.kind === "production_brief" ? "Konfirmasi brief produksi" : "Generate workflow baru?";
+    confirmText.innerHTML = formatMessage(data.message || "");
+    renderOptions(data.options || [], pending.selectedOption);
+    confirmOk.textContent =
+      pending.kind === "production_brief" ? "Render & Pack Upload" : "Generate & Jalankan";
+    dlg.showModal();
+  }
+
+  function renderOptions(options, selected) {
+    if (!options || !options.length) {
+      optionList.innerHTML = "";
+      return;
+    }
+    optionList.innerHTML = options
+      .map((o) => {
+        const checked = o.id === selected ? "checked" : "";
+        return `<label class="opt">
+          <input type="radio" name="prod_opt" value="${escapeHtml(o.id)}" ${checked} />
+          <span><strong>${escapeHtml(o.label || o.id)}</strong><small>${escapeHtml(o.description || "")}</small></span>
+        </label>`;
+      })
+      .join("");
+    optionList.querySelectorAll('input[name="prod_opt"]').forEach((el) => {
+      el.addEventListener("change", () => {
+        if (pending) pending.selectedOption = el.value;
+      });
+    });
   }
 
   fileInput.addEventListener("change", async () => {
@@ -145,7 +215,8 @@
       return;
     }
     uploadPath = data.path;
-    uploadHint.textContent = `Terunggah: ${data.filename}`;
+    uploadKind = data.kind || (/\.(png|jpe?g|webp)$/i.test(file.name) ? "image" : "video");
+    uploadHint.textContent = `Terunggah (${uploadKind}): ${data.filename}`;
   });
 
   form.addEventListener("submit", async (e) => {
@@ -156,33 +227,64 @@
     input.value = "";
     const meta = {};
     if (uploadPath) {
-      meta.input_video = uploadPath;
       meta.upload_path = uploadPath;
+      if (uploadKind === "image") meta.input_image = uploadPath;
+      else meta.input_video = uploadPath;
     }
     const res = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message, meta, confirm_dynamic: false }),
+      body: JSON.stringify({ message, meta, confirm_dynamic: false, confirm_production: false }),
     });
     const data = await res.json();
     if (data.message) addMsg("assistant", data.message);
-    if (data.needs_confirm) {
-      pendingIdea = data.idea || message;
-      confirmText.textContent = data.message;
-      dlg.showModal();
-    }
+    if (data.needs_confirm) openConfirmFromChat(data);
     refreshJobs();
   });
 
   dlg.addEventListener("close", async () => {
-    if (dlg.returnValue !== "ok" || !pendingIdea) return;
-    const idea = pendingIdea;
-    pendingIdea = null;
-    addMsg("user", `[konfirmasi] Generate workflow: ${idea}`);
+    if (dlg.returnValue !== "ok" || !pending) return;
+    const p = pending;
+    pending = null;
+    const selected =
+      (optionList.querySelector('input[name="prod_opt"]:checked') || {}).value ||
+      p.selectedOption;
+
+    if (p.kind === "production_brief") {
+      addMsg("user", `[konfirmasi] Render opsi: ${selected}`);
+      const meta = {
+        production_brief: p.brief,
+        selected_option: selected,
+      };
+      if (uploadPath) {
+        meta.upload_path = uploadPath;
+        if (uploadKind === "image") meta.input_image = uploadPath;
+        else meta.input_video = uploadPath;
+      }
+      if (p.brief && p.brief.input_image) meta.input_image = p.brief.input_image;
+      if (p.brief && p.brief.input_video) meta.input_video = p.brief.input_video;
+
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: p.idea,
+          confirm_production: true,
+          selected_option: selected,
+          meta,
+        }),
+      });
+      const data = await res.json();
+      if (data.message) addMsg("assistant", data.message);
+      refreshJobs();
+      return;
+    }
+
+    addMsg("user", `[konfirmasi] Generate workflow: ${p.idea}`);
     const res = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: idea, confirm_dynamic: true, meta: {} }),
+      body: JSON.stringify({ message: p.idea, confirm_dynamic: true, meta: {} }),
     });
     const data = await res.json();
     if (data.message) addMsg("assistant", data.message);
@@ -192,7 +294,7 @@
 
   addMsg(
     "assistant",
-    "Selamat datang. Image/video memakai ComfyUI, audio memakai GPT-SoVITS. Ketik perintah natural language."
+    "Studio generatif siap. Ketik perintah → brief otomatis → **teks→audio (SoVITS) + teks→foto + teks→video gerak (AnimateDiff)** → subtitle, QC, pack upload. Tidak bergantung mengubah foto user jadi video."
   );
   refreshCapability();
   refreshWorkflows();

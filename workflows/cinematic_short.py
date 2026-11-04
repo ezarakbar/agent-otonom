@@ -1,55 +1,225 @@
-"""Built-in workflow: cinematic short (storyboard → SoVITS → ComfyUI → ffmpeg)."""
+"""Generative cinematic short FROM TEXT — audio + still + motion + finish + QC + pack."""
 
 from __future__ import annotations
 
 import json
+import re
+import shutil
 from pathlib import Path
+
+from agent_otonom.engines.lifecycle import ensure_media_engines, release_media_engines
+from agent_otonom.engines.qc import run_qc, write_qc_report
+from agent_otonom.engines.subtitles import burn_srt, script_to_srt
+from agent_otonom.production.hardware import build_render_profile
+from agent_otonom.production.publish import build_publish_pack
 
 
 async def run(ctx) -> str | None:
     topic = (ctx.meta or {}).get("topic") or ctx.prompt
+    brief = (ctx.meta or {}).get("production_brief") or {}
+    option = (ctx.meta or {}).get("selected_option") or "standard"
     out_dir: Path = ctx.settings.outputs_dir / ctx.job_id
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    # Start heavy engines only for this job; always release RAM afterwards.
+    await ctx.set_status("Status: Menyalakan ComfyUI + GPT-SoVITS (on-demand)…")
+    await ensure_media_engines(
+        comfy_base_url=ctx.settings.comfyui_base_url,
+        sovits_base_url=ctx.settings.sovits_base_url,
+    )
     if not getattr(ctx.settings, "allow_engine_fallback", False):
         await _require_primary_engines(ctx)
 
-    await ctx.set_status("Status: Menulis naskah & storyboard (Ollama)…")
-    await ctx.set_progress(8, "Status: Menulis naskah…")
+    try:
+        return await _produce(ctx, topic=topic, brief=brief, option=option, out_dir=out_dir)
+    finally:
+        await ctx.set_status("Status: Mematikan ComfyUI + GPT-SoVITS (bebasin RAM)…")
+        await release_media_engines(comfy_base_url=ctx.settings.comfyui_base_url)
 
-    board = await _write_storyboard(ctx, topic)
-    script = board["script"]
-    scenes = board["scenes"]
-    visual_prompts = [s["visual_prompt"] for s in scenes]
+
+async def _produce(ctx, *, topic: str, brief: dict, option: str, out_dir: Path) -> str | None:
+    target_sec = brief.get("target_duration_sec")
+    if target_sec is None:
+        target_sec = _extract_duration_sec(topic, ctx.meta or {})
+
+    mode = "patient"
+    if option == "fast_preview":
+        mode = "fast"
+    elif option in {"quality_patient", "standard", "generative"}:
+        mode = "patient"
+    profile = build_render_profile(ctx.capability, target_sec=target_sec, mode=mode)
+
+    await ctx.set_status(
+        f"Status: Generatif dari teks · hardware `{profile.name}` · Comfy AnimateDiff"
+    )
+    await ctx.set_progress(5, "Status: Naskah & storyboard…")
+
+    scenes = list(brief.get("scenes") or [])
+    script = str(brief.get("script") or "")
+    if not scenes or not script:
+        board = await _write_storyboard(ctx, topic, target_sec=target_sec, max_scenes=profile.max_scenes)
+        script = board["script"]
+        scenes = board["scenes"]
+        brief = {**brief, **board}
+    scenes = scenes[: profile.max_scenes]
+    visual_prompts = [_force_human_prompt(s.get("visual_prompt") or topic, topic) for s in scenes]
+
     (out_dir / "script.txt").write_text(script, encoding="utf-8")
     (out_dir / "storyboard.json").write_text(
-        json.dumps(board, ensure_ascii=False, indent=2), encoding="utf-8"
+        json.dumps({"brief": brief, "scenes": scenes, "option": option, "mode": "text_to_av"}, indent=2),
+        encoding="utf-8",
     )
 
-    await ctx.set_status("Status: Voiceover via GPT-SoVITS…")
-    await ctx.set_progress(25, "Status: Menjalankan GPT-SoVITS…")
-    wav = out_dir / "voice.wav"
-    backend = await ctx.engines.voice.synthesize(script, wav)
-    await ctx.set_status(f"Status: Voiceover selesai ({backend})")
+    # 1) TEXT → AUDIO (GPT-SoVITS)
+    await ctx.set_status("Status: Teks → audio (GPT-SoVITS)…")
+    await ctx.set_progress(15, "Status: GPT-SoVITS…")
+    voice = out_dir / "voice.wav"
+    vback = await ctx.engines.voice.synthesize(script, voice)
+    await ctx.set_status(f"Status: Audio siap ({vback})")
 
-    await ctx.set_status("Status: Generate visual via ComfyUI…")
-    await ctx.set_progress(45, "Status: ComfyUI txt2img…")
-    quality = getattr(ctx.capability, "quality_profile", "medium")
-    images, vback = await ctx.engines.vision.make_visuals(
-        visual_prompts, out_dir / "frames", quality=quality
+    mix_seconds = float(target_sec) if target_sec else max(5.0, await ctx.engines.ffmpeg.duration(voice) or 5.0)
+    bg_kind = "cafe" if re.search(r"kopi|coffee|cafe|kafe", topic, re.I) else "room"
+    bg = out_dir / "bg.wav"
+    await ctx.engines.ffmpeg.make_ambience(bg, seconds=mix_seconds + 0.5, kind=bg_kind)
+    mastered = out_dir / "master.wav"
+    await ctx.engines.audio.master_mix(
+        voice, bg, mastered, target_seconds=mix_seconds, bg_volume=0.18
     )
-    await ctx.set_status(f"Status: Visual siap ({vback}, {len(images)} scene)")
 
-    await ctx.set_status(f"Status: Merender video via FFmpeg ({ctx.engines.ffmpeg.encoder})…")
-    await ctx.set_progress(70, "Status: Render FFmpeg…")
+    # 2) TEXT → PHOTO (storyboard stills)
+    await ctx.set_status("Status: Teks → foto keyframe (ComfyUI)…")
+    await ctx.set_progress(30, "Status: ComfyUI stills…")
+    frames_dir = out_dir / "frames"
+    stills, sback = await ctx.engines.vision.make_visuals(
+        visual_prompts, frames_dir, quality=profile.quality_key
+    )
+    await ctx.set_status(f"Status: Keyframe siap ({sback}, {len(stills)})")
+
+    # 3) TEXT → VIDEO MOTION (AnimateDiff) — generative, not photo-warp
+    await ctx.set_status("Status: Teks → video gerak (AnimateDiff)… sabar di CPU…")
+    await ctx.set_progress(45, "Status: AnimateDiff…")
+    clips: list[Path] = []
+    motion_backend = "none"
+    for i, prompt in enumerate(visual_prompts):
+        clip = out_dir / f"motion_{i:02d}.mp4"
+        try:
+            path, motion_backend = await ctx.engines.vision.make_motion_clip(
+                prompt,
+                clip,
+                quality=profile.quality_key,
+                timeout=float(profile.comfy_timeout_sec),
+            )
+            clips.append(path)
+            await ctx.set_status(f"Status: Clip gerak {i+1}/{len(visual_prompts)} OK ({motion_backend})")
+        except Exception as exc:
+            await ctx.set_status(f"Status: AnimateDiff gagal ({exc}); fallback Ken Burns keyframe")
+            # Last-resort motion from GENERATED still (still originated from text)
+            kb = out_dir / f"kb_{i:02d}.mp4"
+            await ctx.engines.ffmpeg.cinematic_from_stills(
+                [stills[i]],
+                mastered,
+                kb,
+                width=profile.out_width,
+                height=profile.out_height,
+                target_seconds=mix_seconds / max(1, len(visual_prompts)),
+            )
+            clips.append(kb)
+            motion_backend = "kenburns_from_generated_still"
+
+    # Concat motion clips if multiple
+    await ctx.set_progress(70, "Status: Gabung timeline…")
+    video_only = out_dir / "video_only.mp4"
+    if len(clips) == 1:
+        shutil.copy2(clips[0], video_only)
+    else:
+        concat = out_dir / "motion_concat.txt"
+        concat.write_text("\n".join(f"file '{c.resolve()}'" for c in clips), encoding="utf-8")
+        await ctx.engines.ffmpeg.run(
+            ["-f", "concat", "-safe", "0", "-i", str(concat), "-c", "copy", str(video_only)]
+        )
+
+    # 4) Lipsync (if service up) + mux mastered audio
+    await ctx.set_progress(78, "Status: Lipsync / mux audio…")
+    lip_out = out_dir / "lip.mp4"
+    lip_path, lip_back = await ctx.engines.lipsync.apply(video_only, mastered, lip_out)
+    await ctx.set_status(f"Status: Lipsync mode: {lip_back}")
+
+    draft = out_dir / "draft.mp4"
+    try:
+        await ctx.engines.ffmpeg.mux_av(lip_path, mastered, draft, shortest=True)
+    except Exception:
+        shutil.copy2(lip_path, draft)
+
+    # Fit duration
+    timed = out_dir / "timed.mp4"
+    await ctx.engines.ffmpeg.run(
+        [
+            "-i",
+            str(draft),
+            "-t",
+            f"{mix_seconds:.3f}",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "20",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            str(timed),
+        ]
+    )
+
+    # 5) Subtitles
+    await ctx.set_progress(86, "Status: Subtitle…")
+    srt = script_to_srt(script, mix_seconds, out_dir / "captions.srt")
+    subtitled = out_dir / "subtitled.mp4"
+    try:
+        await burn_srt(ctx.engines.ffmpeg, timed, srt, subtitled)
+        final_src = subtitled
+    except Exception:
+        final_src = timed
+
     final = out_dir / "final.mp4"
-    width, height = (720, 1280) if quality == "low" else (1080, 1920)
-    await ctx.engines.ffmpeg.cinematic_from_stills(
-        images, wav, final, width=width, height=height
+    shutil.copy2(final_src, final)
+
+    # 6) Publish pack
+    await ctx.set_progress(92, "Status: Pack upload…")
+    pack = await build_publish_pack(
+        llm=ctx.engines.llm,
+        ffmpeg=ctx.engines.ffmpeg,
+        out_dir=out_dir / "publish",
+        video_path=final,
+        brief=brief or {"theme": topic, "script": script, "logline": topic},
+        topic=topic,
     )
 
-    await ctx.set_progress(100, "Status: Cinematic short selesai")
-    await ctx.set_status(f"Selesai: {final}")
+    # 7) QC gate
+    await ctx.set_progress(96, "Status: QC…")
+    expect_human = bool(re.search(r"orang|manusia|person|kopi|coffee|minum", topic, re.I))
+    report = await run_qc(
+        ffmpeg=ctx.engines.ffmpeg,
+        video=final,
+        voice=voice,
+        frames_dir=frames_dir,
+        publish_dir=out_dir / "publish",
+        expect_human=expect_human,
+        target_sec=float(target_sec) if target_sec else mix_seconds,
+    )
+    report["motion_backend"] = motion_backend
+    report["lipsync"] = lip_back
+    report["voice"] = vback
+    write_qc_report(out_dir, report)
+    if not report.get("ok"):
+        await ctx.set_status("Status: QC WARN — cek QC_REPORT.md sebelum upload publik")
+    else:
+        await ctx.set_status("Status: QC PASS — siap upload")
+
+    await ctx.set_progress(100, "Status: Produksi generatif selesai")
+    title0 = (pack.get("titles") or ["video"])[0]
+    await ctx.set_status(f"Selesai: {final} | {title0} | motion={motion_backend}")
     return str(final)
 
 
@@ -60,105 +230,59 @@ async def _require_primary_engines(ctx) -> None:
     if not await ctx.engines.voice.available():
         missing.append(f"GPT-SoVITS ({ctx.engines.voice.sovits_url})")
     if missing:
-        raise RuntimeError(
-            "Engine utama belum jalan: "
-            + ", ".join(missing)
-            + ". Jalankan ComfyUI (image/video) dan GPT-SoVITS (audio), lalu ulangi perintah."
-        )
+        raise RuntimeError("Engine utama belum jalan: " + ", ".join(missing))
 
 
-async def _write_storyboard(ctx, topic: str) -> dict:
+def _extract_duration_sec(topic: str, meta: dict) -> float | None:
+    if meta.get("duration_sec"):
+        try:
+            return float(meta["duration_sec"])
+        except (TypeError, ValueError):
+            pass
+    m = re.search(r"(\d+(?:[.,]\d+)?)\s*(?:detik|seconds?|secs?)\b", str(topic), re.I)
+    if m:
+        return float(m.group(1).replace(",", "."))
+    return None
+
+
+def _force_human_prompt(visual: str, topic: str) -> str:
+    text = " ".join(str(visual).split())
+    need_human = bool(re.search(r"orang|manusia|person|people|woman|man|kopi|coffee|minum", topic, re.I))
+    if need_human and not re.search(r"\b(human|person|man|woman|adult|people)\b", text, re.I):
+        text = "photoreal real adult human clearly visible in frame, " + text
+    if re.search(r"kopi|coffee", topic, re.I) and "coffee" not in text.lower() and "mug" not in text.lower():
+        text += ", drinking coffee from a ceramic mug, subtle natural motion, steam rising"
+    text += ", living motion, natural body language"
+    return text
+
+
+async def _write_storyboard(ctx, topic: str, *, target_sec: float | None, max_scenes: int) -> dict:
     system = (
-        "You are a film director for short vertical videos. Reply JSON only. "
-        "Match the user's subject, place, time of day, and mood exactly. "
-        "Do not invent a generic sunset harbor unless the user asked for it. "
-        "visual_prompt must be English, photoreal, specific (lens, light, action, location). "
-        "script is the spoken voiceover in the user's language. 65-110 words, 3-5 scenes."
+        "Film director. JSON only. Photoreal real adult human when asked. "
+        "visual_prompt English with action + motion cues."
     )
     prompt = (
-        "Buat storyboard video pendek dari permintaan ini:\n"
-        f"{topic}\n\n"
-        "JSON schema:\n"
-        "{"
-        '"language":"id|en",'
-        '"script":"full voiceover",'
-        '"scenes":[{"title":"...","voiceover":"...","visual_prompt":"..."}]'
-        "}"
+        f"Durasi:{target_sec or 'n/a'} MaxScenes:{max_scenes}\nPermintaan:{topic}\n"
+        'JSON:{"theme":"...","script":"...","scenes":[{"title":"...","voiceover":"...","visual_prompt":"..."}]}'
     )
     try:
         if await ctx.engines.llm.available():
-            data = await ctx.engines.llm.generate_json(prompt, system=system, temperature=0.55)
-            board = _normalize_board(data, topic)
-            if board["scenes"] and len(board["script"].split()) >= 20:
-                return board
+            data = await ctx.engines.llm.generate_json(prompt, system=system, temperature=0.45)
+            if isinstance(data, dict) and data.get("scenes"):
+                scenes = data["scenes"][:max_scenes]
+                script = data.get("script") or " ".join(
+                    str(s.get("voiceover") or "") for s in scenes if isinstance(s, dict)
+                )
+                return {"theme": data.get("theme") or topic[:80], "script": script, "scenes": scenes}
     except Exception:
         pass
-    return _fallback_board(topic)
-
-
-def _normalize_board(data: dict, topic: str) -> dict:
-    scenes_in = data.get("scenes") if isinstance(data, dict) else None
-    scenes: list[dict] = []
-    if isinstance(scenes_in, list):
-        for item in scenes_in[:5]:
-            if isinstance(item, str):
-                scenes.append(
-                    {
-                        "title": item[:40],
-                        "voiceover": item,
-                        "visual_prompt": _visual_from_topic(topic, item),
-                    }
-                )
-            elif isinstance(item, dict):
-                voice = str(item.get("voiceover") or item.get("narration") or item.get("text") or "").strip()
-                visual = str(item.get("visual_prompt") or item.get("prompt") or "").strip()
-                title = str(item.get("title") or voice[:32] or "scene").strip()
-                if not visual:
-                    visual = _visual_from_topic(topic, voice or title)
-                if voice or visual:
-                    scenes.append(
-                        {
-                            "title": title,
-                            "voiceover": voice or visual,
-                            "visual_prompt": visual,
-                        }
-                    )
-    script = str((data or {}).get("script") or "").strip()
-    if not script:
-        script = " ".join(s["voiceover"] for s in scenes).strip()
-    if not scenes:
-        return _fallback_board(topic)
-    return {
-        "language": str((data or {}).get("language") or "id"),
-        "script": script,
-        "scenes": scenes,
-    }
-
-
-def _fallback_board(topic: str) -> dict:
-    clean = " ".join(str(topic).split())
-    beats = [
-        ("Establishing", f"Wide establishing shot of {clean}, cinematic photoreal, environment and scale"),
-        ("Detail", f"Intimate detail shot from the world of {clean}, tactile textures, cinematic lighting"),
-        ("Motion", f"Human-scale moment connected to {clean}, natural gesture, documentary-cinematic"),
-        ("Close", f"Emotional close-up still that concludes {clean}, rim light, film grain"),
-    ]
-    script = (
-        f"{clean}. "
-        "Gambar mengikuti permintaan itu secara langsung: lokasi, waktu, dan suasana yang diminta. "
-        "Kamera mendekat ke detil, lalu ke gerakan manusia di dalamnya. "
-        "Di detik terakhir, satu gambar penutup yang masih setia pada ide yang sama."
+    script = "Kopi ini hangat. Aku butuh jeda sejenak hari ini."
+    visual = (
+        "photoreal adult human drinking coffee from ceramic mug in cozy cafe, "
+        "subtle natural motion, steam, morning light, 35mm, realistic skin"
     )
-    scenes = [
-        {"title": t, "voiceover": script, "visual_prompt": p} for t, p in beats
-    ]
-    # Split voiceover-ish lines from the topic itself when it is long
-    return {"language": "id", "script": script, "scenes": scenes}
-
-
-def _visual_from_topic(topic: str, extra: str = "") -> str:
-    base = " ".join(str(topic).split())
-    more = " ".join(str(extra).split())[:180]
-    if more and more.lower() not in base.lower():
-        return f"{base}. {more}. cinematic photoreal still, dramatic lighting, 35mm film"
-    return f"{base}, cinematic photoreal still, dramatic lighting, 35mm film, vertical frame"
+    return {
+        "theme": "Lifestyle cafe",
+        "script": script,
+        "scenes": [{"title": "Coffee", "voiceover": script, "visual_prompt": visual}],
+    }

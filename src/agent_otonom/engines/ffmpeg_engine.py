@@ -145,6 +145,90 @@ class FFmpegEngine:
                 raise
         return out
 
+    async def make_ambience(
+        self,
+        out: Path,
+        *,
+        seconds: float = 5.0,
+        kind: str = "cafe",
+    ) -> Path:
+        """Synthetic room-tone / cafe murmur (no external SFX pack required)."""
+        out.parent.mkdir(parents=True, exist_ok=True)
+        seconds = max(1.0, float(seconds))
+        if kind == "cafe":
+            # brown noise + soft band → cafe-like murmur
+            af = "lowpass=f=1400,highpass=f=90,volume=0.28"
+            src = f"anoisesrc=color=brown:amplitude=0.05:duration={seconds:.3f}:sample_rate=44100"
+        else:
+            af = "volume=0.2"
+            src = f"anoisesrc=color=pink:amplitude=0.03:duration={seconds:.3f}:sample_rate=44100"
+        await self.run(
+            ["-f", "lavfi", "-i", src, "-af", af, "-c:a", "pcm_s16le", str(out)]
+        )
+        return out
+
+    async def mix_voice_and_bg(
+        self,
+        voice: Path,
+        bg: Path,
+        out: Path,
+        *,
+        bg_volume: float = 0.22,
+        target_seconds: float | None = None,
+    ) -> Path:
+        """Mix dialogue over background; optionally pad/trim to target length."""
+        out.parent.mkdir(parents=True, exist_ok=True)
+        voice_dur = await self.duration(voice)
+        bg_vol = max(0.05, min(1.0, bg_volume))
+        if target_seconds and target_seconds > 0:
+            t = f"{target_seconds:.3f}"
+            # Loop/pad bg to target, pad voice with silence if short, then mix
+            fc = (
+                f"[0:a]apad=whole_dur={t},atrim=0:{t},volume=1.0[v];"
+                f"[1:a]aloop=loop=-1:size=2e+09,atrim=0:{t},volume={bg_vol}[b];"
+                f"[v][b]amix=inputs=2:duration=longest:dropout_transition=0[a]"
+            )
+            await self.run(
+                [
+                    "-i",
+                    str(voice),
+                    "-i",
+                    str(bg),
+                    "-filter_complex",
+                    fc,
+                    "-map",
+                    "[a]",
+                    "-t",
+                    t,
+                    "-c:a",
+                    "pcm_s16le",
+                    str(out),
+                ]
+            )
+        else:
+            fc = (
+                f"[1:a]volume={bg_vol}[b];"
+                f"[0:a][b]amix=inputs=2:duration=first:dropout_transition=0[a]"
+            )
+            await self.run(
+                [
+                    "-i",
+                    str(voice),
+                    "-i",
+                    str(bg),
+                    "-filter_complex",
+                    fc,
+                    "-map",
+                    "[a]",
+                    "-c:a",
+                    "pcm_s16le",
+                    str(out),
+                ]
+            )
+        if voice_dur <= 0:
+            logger.warning("voice duration unknown for mix")
+        return out
+
     async def cinematic_from_stills(
         self,
         images: list[Path],
@@ -154,13 +238,40 @@ class FFmpegEngine:
         width: int = 1080,
         height: int = 1920,
         fps: int = 30,
+        target_seconds: float | None = None,
     ) -> Path:
         """Ken-Burns clips from Comfy stills, then mux voiceover."""
         try:
-            return await self._kenburns(images, audio, out, width=width, height=height, fps=fps)
+            return await self._kenburns(
+                images,
+                audio,
+                out,
+                width=width,
+                height=height,
+                fps=fps,
+                target_seconds=target_seconds,
+            )
         except Exception as exc:
             logger.warning("Ken Burns failed (%s); using slideshow", exc)
             return await self.slideshow(images, audio, out, width=width, height=height, fps=fps)
+
+    async def pad_or_trim_audio(self, src: Path, out: Path, seconds: float) -> Path:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        t = max(0.5, float(seconds))
+        await self.run(
+            [
+                "-i",
+                str(src),
+                "-af",
+                f"apad=whole_dur={t:.3f},atrim=0:{t:.3f}",
+                "-t",
+                f"{t:.3f}",
+                "-c:a",
+                "pcm_s16le",
+                str(out),
+            ]
+        )
+        return out
 
     async def _kenburns(
         self,
@@ -171,14 +282,17 @@ class FFmpegEngine:
         width: int,
         height: int,
         fps: int,
+        target_seconds: float | None = None,
     ) -> Path:
         if not images:
             raise ValueError("No images for cinematic render")
         out.parent.mkdir(parents=True, exist_ok=True)
         dur = await self.duration(audio)
-        if dur <= 0:
+        if target_seconds and target_seconds > 0:
+            dur = float(target_seconds)
+        elif dur <= 0:
             dur = max(4.0, len(images) * 3.0)
-        per = max(2.5, dur / len(images))
+        per = max(1.0, dur / len(images))
         frames = max(int(per * fps), fps * 2)
         clips: list[Path] = []
         for i, img in enumerate(images):

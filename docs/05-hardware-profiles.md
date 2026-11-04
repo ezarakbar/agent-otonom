@@ -1,22 +1,23 @@
 # Hardware Profiles
 
-Capability probe assigns `quality_profile`:
+Capability probe assigns `quality_profile`, then production brief picks a **render profile**:
 
 | Profile | When | Behavior |
 |---------|------|----------|
-| `low` | RAM &lt; 12 GB | Smaller frames (720×1280), lighter scripts |
-| `medium` | RAM ≥ 12 GB | 1080×1920 slideshow, default models |
-| `high` | RAM ≥ 24 GB + discrete GPU | Larger Comfy latents / more sampler steps |
+| `fast` | short preview / low RAM | 1–2 scene, small latent, short timeout |
+| `balanced` | default discrete GPU | 1080×1920, medium steps |
+| `quality` | high RAM + NVIDIA/Apple | more steps / scenes |
+| `patient` | AMD / CPU Comfy hosts | smaller output, **long** Comfy timeout — slow OK, finish required |
 
 ## This blueprint’s reference host
 
 - CPU: Ryzen 7 5700X (16 threads)
-- RAM: 16 GB → **medium**
-- GPU: Radeon RX 580 (AMD, no CUDA) → encoder **h264_amf** (fallback libx264)
-- LLM: `qwen2.5:3b` via Ollama
+- RAM: 16 GB
+- GPU: Radeon RX 580 (AMD, no modern ROCm) → Comfy often on **CPU**, encoder **h264_amf**
+- Profile: **patient** for cinematic shorts
 
-ComfyUI + GPT-SoVITS should be running on this host (or LAN) even on AMD — they are the media engines, FFmpeg only assembles the timeline.
+ComfyUI + GPT-SoVITS are primary media engines. FFmpeg only assembles timeline + publish thumbnail.
 
 ## Portability rule
 
-Never assume NVIDIA. Always call `agent-otonom doctor` after install. Doctor **fails** if ComfyUI or GPT-SoVITS is down (unless `ALLOW_ENGINE_FALLBACK=true`).
+Never assume NVIDIA. `agent-otonom doctor` after install. Doctor fails if ComfyUI/GPT-SoVITS down (unless `ALLOW_ENGINE_FALLBACK=true`).

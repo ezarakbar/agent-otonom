@@ -1,0 +1,14 @@
+[Unit]
+Description=AGENT OTONOM — ComfyUI (primary image/video engine)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/ComfyUI
+Environment=PYTHONUNBUFFERED=1
+ExecStart=%h/ComfyUI/.venv/bin/python main.py --listen 127.0.0.1 --port 8188 --cpu
+Restart=on-failure
+RestartSec=8
+# Soft memory guard on 16 GB hosts
+MemoryMax=8G
+# On-demand only — do not enable at login; agent starts/stops this per job.

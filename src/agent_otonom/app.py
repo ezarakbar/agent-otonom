@@ -31,6 +31,8 @@ logger = logging.getLogger(__name__)
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1)
     confirm_dynamic: bool = False
+    confirm_production: bool = False
+    selected_option: str | None = None
     meta: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -157,6 +159,8 @@ def create_app() -> FastAPI:
             req.message,
             meta=req.meta,
             confirm_dynamic=req.confirm_dynamic,
+            confirm_production=req.confirm_production,
+            selected_option=req.selected_option,
         )
         await state.db.add_message(
             "assistant",
@@ -169,13 +173,21 @@ def create_app() -> FastAPI:
     @app.post("/api/upload")
     async def upload(file: UploadFile = File(...)) -> dict[str, Any]:
         suffix = Path(file.filename or "upload.bin").suffix.lower()
-        if suffix not in {".mp4", ".mov", ".mkv", ".webm", ".avi"}:
-            raise HTTPException(400, "Unsupported video type")
+        video_ok = suffix in {".mp4", ".mov", ".mkv", ".webm", ".avi"}
+        image_ok = suffix in {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
+        if not video_ok and not image_ok:
+            raise HTTPException(400, "Unsupported media type (video or image)")
         name = f"{uuid.uuid4().hex}{suffix}"
         dest = state.settings.uploads_dir / name
         with dest.open("wb") as f:
             shutil.copyfileobj(file.file, f)
-        return {"ok": True, "path": str(dest), "filename": file.filename}
+        kind = "image" if image_ok else "video"
+        return {
+            "ok": True,
+            "path": str(dest),
+            "filename": file.filename,
+            "kind": kind,
+        }
 
     @app.get("/api/media")
     async def media(path: str) -> FileResponse:

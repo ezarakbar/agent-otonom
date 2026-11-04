@@ -1,8 +1,15 @@
 workflows:
   - id: cinematic_short
     title: Cinematic Short
-    description: Generate a vertical cinematic short from a natural-language idea.
+    description: Brief produksi → konfirmasi → ComfyUI + SoVITS → pack siap upload.
     file: cinematic_short.py
+    entry: run
+    builtin: true
+
+  - id: image_to_video
+    title: Image Refine (opsional)
+    description: Jalur sekunder — refine gambar user. Produksi utama = teks→AV generatif.
+    file: image_to_video.py
     entry: run
     builtin: true
 

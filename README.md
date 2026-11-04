@@ -9,11 +9,12 @@ Dynamic workflow router & generator · capability-aware media pipeline · profes
 
 You type natural language:
 
-- *“Buatkan film sinematik tentang pelabuhan di senja”* → **cinematic short**
+- *“Buatkan film sinematik tentang pelabuhan di senja”* → **brief + konfirmasi** → cinematic short + **publish pack**
+- *Upload gambar + “jadi video”* → opsi Ken Burns / Comfy img2img → pack upload
 - *“Potong video ini jadi highlight”* → **video clipper**
 - Unknown task → agent **writes a new Python workflow**, sandboxes it, then runs it
 
-Background workers keep the UI responsive. Chat shows clean status lines only — no terminal noise.
+Setiap produksi: riset referensi (web) → naskah/scene/tema → pilih opsi → ComfyUI + GPT-SoVITS → judul/hashtag/thumbnail siap upload.
 
 ## Quick start
 
@@ -70,7 +71,7 @@ See [docs/00-architecture.md](docs/00-architecture.md).
 ```
 Chat → Intent Router → Workflow Manager → Async Queue
                          ↘ generate+sandbox if missing
-Engines: Ollama · **GPT-SoVITS (audio)** · **ComfyUI (image/video)** · FFmpeg
+Engines: Ollama · **GPT-SoVITS (audio)** · **ComfyUI + AnimateDiff (foto & video gerak dari teks)** · FFmpeg · lipsync/QC/publish
 ```
 
 Hardware probe picks encoder automatically (**AMF** on AMD, **NVENC** on NVIDIA, etc.).
@@ -95,15 +96,18 @@ outputs/            # job artifacts
 | [03-engines-setup](docs/03-engines-setup.md) | Ollama / Piper / Comfy / SoVITS |
 | [04-security-sandbox](docs/04-security-sandbox.md) | Dynamic code safety |
 | [05-hardware-profiles](docs/05-hardware-profiles.md) | Adaptive quality |
+| [06-upgrade-non-hardware](docs/06-upgrade-non-hardware.md) | Plugin/lipsync/FaceID (catatan) |
 
-## Systemd (Linux user unit)
+## Systemd (Linux user units)
 
 ```bash
-mkdir -p ~/.config/systemd/user
-cp systemd/agent-otonom.service ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now agent-otonom.service
+./scripts/install-systemd.sh
+# starts: agent-otonom + ComfyUI (:8188) + GPT-SoVITS (:9880)
+systemctl --user status 'agent-otonom*'
 ```
+
+ComfyUI expects a checkpoint in `~/ComfyUI/models/checkpoints/` (e.g. `v1-5-pruned-emaonly.safetensors`).  
+GPT-SoVITS needs `SOVITS_REF_AUDIO` (default: `models/sovits/ref_speaker.wav`).
 
 ## Safety
 

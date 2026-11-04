@@ -229,6 +229,26 @@ async def probe(settings: Settings | None = None) -> CapabilityReport:
             "ComfyUI tidak aktif — engine utama image/video. Jalankan ComfyUI di "
             f"{settings.comfyui_base_url}."
         )
+    else:
+        # Detect AnimateDiff for generative motion
+        ad_ok = False
+        try:
+            async with httpx.AsyncClient(timeout=3.0) as client:
+                r = await client.get(
+                    f"{settings.comfyui_base_url.rstrip('/')}/object_info/ADE_AnimateDiffLoaderGen1"
+                )
+                ad_ok = r.status_code == 200 and bool(r.json())
+        except Exception:
+            ad_ok = False
+        engines["animatediff"] = {
+            "available": ad_ok,
+            "required": False,
+            "role": "generative_motion",
+        }
+        if not ad_ok:
+            notes.append(
+                "AnimateDiff belum terdeteksi di ComfyUI — video gerak akan fallback."
+            )
 
     piper_path = settings.piper_bin or shutil.which("piper") or _find_local_piper(settings)
     engines["piper"] = {

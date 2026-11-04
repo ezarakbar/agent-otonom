@@ -6,7 +6,9 @@ from dataclasses import dataclass
 
 from agent_otonom.capability import CapabilityReport
 from agent_otonom.config import Settings
+from agent_otonom.engines.audio_master import AudioMaster
 from agent_otonom.engines.ffmpeg_engine import FFmpegEngine
+from agent_otonom.engines.lipsync import LipsyncEngine
 from agent_otonom.engines.llm import OllamaEngine
 from agent_otonom.engines.vision import VisionEngine
 from agent_otonom.engines.voice import VoiceEngine
@@ -18,6 +20,8 @@ class EngineHub:
     voice: VoiceEngine
     vision: VisionEngine
     ffmpeg: FFmpegEngine
+    audio: AudioMaster
+    lipsync: LipsyncEngine
     capability: CapabilityReport
 
 
@@ -44,4 +48,17 @@ def build_engines(settings: Settings, capability: CapabilityReport) -> EngineHub
         checkpoint=settings.comfy_checkpoint,
         allow_fallback=settings.allow_engine_fallback,
     )
-    return EngineHub(llm=llm, voice=voice, vision=vision, ffmpeg=ffmpeg, capability=capability)
+    audio = AudioMaster(ffmpeg)
+    lipsync = LipsyncEngine(
+        getattr(settings, "lipsync_base_url", "") or "",
+        ffmpeg=ffmpeg,
+    )
+    return EngineHub(
+        llm=llm,
+        voice=voice,
+        vision=vision,
+        ffmpeg=ffmpeg,
+        audio=audio,
+        lipsync=lipsync,
+        capability=capability,
+    )

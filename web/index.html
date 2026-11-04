@@ -41,7 +41,7 @@
       <header class="stage-head">
         <div>
           <p class="eyebrow">Chat Control</p>
-          <h2 class="stage-title">Instruksikan agen dalam bahasa natural</h2>
+          <h2 class="stage-title">Brief → konfirmasi → render → pack upload</h2>
         </div>
         <div class="conn">
           <span id="conn-dot" class="dot"></span>
@@ -61,10 +61,10 @@
 
       <form id="composer" class="composer">
         <label class="upload">
-          <input type="file" id="file" accept="video/*" hidden />
-          <span>Upload video</span>
+          <input type="file" id="file" accept="video/*,image/*" hidden />
+          <span>Upload media</span>
         </label>
-        <textarea id="input" rows="2" placeholder="Contoh: Buatkan film sinematik tentang pelabuhan di senja…" required></textarea>
+        <textarea id="input" rows="2" placeholder="Contoh: Video 5 detik orang minum kopi di kafe, photoreal, siap upload TikTok…" required></textarea>
         <button type="submit" id="send">Kirim</button>
       </form>
       <p id="upload-hint" class="hint"></p>
@@ -72,11 +72,12 @@
   </div>
   <dialog id="confirm-dlg">
     <form method="dialog" class="dlg">
-      <h3>Generate workflow baru?</h3>
-      <p id="confirm-text"></p>
+      <h3 id="confirm-title">Konfirmasi produksi?</h3>
+      <div id="confirm-text" class="confirm-body"></div>
+      <div id="option-list" class="option-list"></div>
       <div class="dlg-actions">
         <button value="cancel" class="ghost">Batal</button>
-        <button value="ok" id="confirm-ok">Generate & Jalankan</button>
+        <button value="ok" id="confirm-ok">Render & Pack Upload</button>
       </div>
     </form>
   </dialog>

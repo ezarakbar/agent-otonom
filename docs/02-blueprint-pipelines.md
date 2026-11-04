@@ -1,35 +1,29 @@
 # Pipeline Blueprint
 
-## cinematic_short
+## cinematic_short (generatif dari teks)
 
 1. Intent → `cinematic_short`
-2. LLM writes a **storyboard JSON**: voiceover + per-scene English `visual_prompt` that must match the user topic
-3. **GPT-SoVITS** synthesizes the full voiceover WAV
-4. **ComfyUI** txt2img for each visual prompt (real stills, not color cards)
-5. FFmpeg Ken-Burns + AAC mux → `outputs/<job>/final.mp4`
+2. Brief produksi + riset web (otomatis dijalankan bila `AUTO_EXECUTE_PRODUCTION=true`)
+3. **Teks → audio** via GPT-SoVITS + ambience + loudnorm (−14 LUFS)
+4. **Teks → foto** keyframe via ComfyUI txt2img
+5. **Teks → video gerak** via ComfyUI **AnimateDiff** (bukan mengubah foto user)
+6. Lipsync (jika `LIPSYNC_BASE_URL` aktif) + mux audio
+7. Subtitle SRT burn-in
+8. Publish pack (judul/hashtag/thumbnail) + **QC gate**
+
+Fallback gerak: Ken Burns dari **still yang digenerate dari teks** (bukan upload user).
+
+## image_to_video (opsional / sekunder)
+
+Hanya jika user sengaja upload gambar untuk refine. Produksi utama selalu text→AV.
 
 ## video_clipper
 
-1. Intent → `video_clipper` (requires uploaded / absolute path)
-2. Probe duration via ffprobe
-3. Heuristic highlight windows (+ optional LLM refine)
-4. FFmpeg cut parts + concat → `outputs/<job>/highlights.mp4`
-
-## dynamic
-
-1. Intent unknown / `other`
-2. UI asks confirmation (default)
-3. LLM writes `workflows/_generated/gen_*.py`
-4. Sandbox AST validation
-5. Register + enqueue like a built-in workflow
+Potong highlight dari video sumber + pack upload.
 
 ## Status lines (UI contract)
 
-Only clean messages reach the chat, e.g.:
-
-- `Status: Menulis naskah (Ollama)…`
-- `Status: Voiceover selesai (piper)`
-- `Status: Merender video via FFmpeg (h264_amf)…`
-- `Selesai: outputs/.../final.mp4`
-
-Raw ffmpeg/ollama logs go to `logs/agent-otonom.log`.
+- `Status: Teks → audio (GPT-SoVITS)…`
+- `Status: Teks → foto keyframe (ComfyUI)…`
+- `Status: Teks → video gerak (AnimateDiff)…`
+- `Status: QC PASS — siap upload`

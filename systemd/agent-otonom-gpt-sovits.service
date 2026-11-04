@@ -1,0 +1,13 @@
+[Unit]
+Description=AGENT OTONOM — GPT-SoVITS API (primary audio engine)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/GPT-SoVITS
+Environment=PYTHONUNBUFFERED=1
+ExecStart=%h/GPT-SoVITS/venv/bin/python api_v2.py -a 127.0.0.1 -p 9880 -c GPT_SoVITS/configs/tts_infer.yaml
+Restart=on-failure
+RestartSec=8
+MemoryMax=6G
+# On-demand only — do not enable at login; agent starts/stops this per job.

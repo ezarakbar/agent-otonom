@@ -44,13 +44,20 @@ class Settings(BaseSettings):
     piper_model: str = Field(default="", alias="PIPER_MODEL")
 
     worker_concurrency: int = Field(default=1, alias="WORKER_CONCURRENCY")
-    job_timeout_sec: int = Field(default=3600, alias="JOB_TIMEOUT_SEC")
+    job_timeout_sec: int = Field(default=7200, alias="JOB_TIMEOUT_SEC")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 
     allow_dynamic_workflows: bool = Field(default=True, alias="ALLOW_DYNAMIC_WORKFLOWS")
     require_confirm_new_workflow: bool = Field(
         default=True, alias="REQUIRE_CONFIRM_NEW_WORKFLOW"
     )
+    require_production_brief: bool = Field(
+        default=True, alias="REQUIRE_PRODUCTION_BRIEF"
+    )
+    # When true: still builds professional brief, then auto-runs recommended option
+    auto_execute_production: bool = Field(default=True, alias="AUTO_EXECUTE_PRODUCTION")
+    enable_web_research: bool = Field(default=True, alias="ENABLE_WEB_RESEARCH")
+    lipsync_base_url: str = Field(default="", alias="LIPSYNC_BASE_URL")
 
     @property
     def outputs_dir(self) -> Path:
