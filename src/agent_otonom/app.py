@@ -88,12 +88,19 @@ async def lifespan(app: FastAPI):
     state.manager = manager
     state.capability = cap
 
-    await bus.publish(
-        system(
-            "AGENT OTONOM siap.",
-            capability=cap.to_dict(),
+    missing = [
+        name
+        for name, info in cap.engines.items()
+        if info.get("required") and not info.get("available")
+    ]
+    boot = "AGENT OTONOM siap. Engine utama: ComfyUI (image/video) + GPT-SoVITS (audio)."
+    if missing:
+        boot = (
+            "AGENT OTONOM jalan, tapi engine utama belum aktif: "
+            + ", ".join(missing)
+            + ". Video/audio tidak akan dibuat sampai ComfyUI dan GPT-SoVITS dijalankan."
         )
-    )
+    await bus.publish(system(boot, capability=cap.to_dict()))
     logger.info("AGENT OTONOM listening — encoder=%s profile=%s", cap.video_encoder, cap.quality_profile)
 
     yield

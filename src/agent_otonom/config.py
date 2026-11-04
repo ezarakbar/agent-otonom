@@ -29,7 +29,16 @@ class Settings(BaseSettings):
     ollama_model: str = Field(default="qwen2.5:3b", alias="OLLAMA_MODEL")
 
     sovits_base_url: str = Field(default="http://127.0.0.1:9880", alias="SOVITS_BASE_URL")
+    sovits_ref_audio: str = Field(default="", alias="SOVITS_REF_AUDIO")
+    sovits_prompt_text: str = Field(default="", alias="SOVITS_PROMPT_TEXT")
+    sovits_prompt_lang: str = Field(default="auto", alias="SOVITS_PROMPT_LANG")
+
     comfyui_base_url: str = Field(default="http://127.0.0.1:8188", alias="COMFYUI_BASE_URL")
+    comfy_checkpoint: str = Field(default="", alias="COMFY_CHECKPOINT")
+
+    # ComfyUI + GPT-SoVITS are primary media engines. Piper/espeak/slideshow
+    # only run when this is true.
+    allow_engine_fallback: bool = Field(default=False, alias="ALLOW_ENGINE_FALLBACK")
 
     piper_bin: str = Field(default="", alias="PIPER_BIN")
     piper_model: str = Field(default="", alias="PIPER_MODEL")
@@ -79,6 +88,7 @@ class Settings(BaseSettings):
             self.uploads_dir,
             self.workflows_dir,
             self.workflows_dir / "_generated",
+            self.agent_root / "models" / "sovits",
         ):
             d.mkdir(parents=True, exist_ok=True)
 

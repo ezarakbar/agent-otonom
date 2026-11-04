@@ -192,7 +192,7 @@
 
   addMsg(
     "assistant",
-    "Selamat datang. Ketik perintah natural language — agen akan merutekan atau membuat workflow secara dinamis."
+    "Selamat datang. Image/video memakai ComfyUI, audio memakai GPT-SoVITS. Ketik perintah natural language."
   );
   refreshCapability();
   refreshWorkflows();

@@ -18,6 +18,9 @@ Requirements:
 - Define: async def run(ctx) -> str | None
 - ctx has: job_id, prompt, meta, engines, settings, set_status(msg), set_progress(pct, msg), emit
 - ctx.engines.llm, .voice, .vision, .ffmpeg are available
+- For image/video ALWAYS use ctx.engines.vision.make_visuals (ComfyUI)
+- For speech ALWAYS use ctx.engines.voice.synthesize (GPT-SoVITS)
+- Do not invent color cards or skip those engines
 - Return absolute path string to final output file, or None
 - NO os/subprocess/socket/sys/open/eval/exec imports or calls
 - Keep it simple; prefer ctx.engines helpers

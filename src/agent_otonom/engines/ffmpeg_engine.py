@@ -145,6 +145,89 @@ class FFmpegEngine:
                 raise
         return out
 
+    async def cinematic_from_stills(
+        self,
+        images: list[Path],
+        audio: Path,
+        out: Path,
+        *,
+        width: int = 1080,
+        height: int = 1920,
+        fps: int = 30,
+    ) -> Path:
+        """Ken-Burns clips from Comfy stills, then mux voiceover."""
+        try:
+            return await self._kenburns(images, audio, out, width=width, height=height, fps=fps)
+        except Exception as exc:
+            logger.warning("Ken Burns failed (%s); using slideshow", exc)
+            return await self.slideshow(images, audio, out, width=width, height=height, fps=fps)
+
+    async def _kenburns(
+        self,
+        images: list[Path],
+        audio: Path,
+        out: Path,
+        *,
+        width: int,
+        height: int,
+        fps: int,
+    ) -> Path:
+        if not images:
+            raise ValueError("No images for cinematic render")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        dur = await self.duration(audio)
+        if dur <= 0:
+            dur = max(4.0, len(images) * 3.0)
+        per = max(2.5, dur / len(images))
+        frames = max(int(per * fps), fps * 2)
+        clips: list[Path] = []
+        for i, img in enumerate(images):
+            clip = out.parent / f"kb_{i:02d}.mp4"
+            vf = (
+                f"scale={width}:{height}:force_original_aspect_ratio=increase,"
+                f"crop={width}:{height},"
+                f"zoompan=z='min(zoom+0.0012,1.12)':d={frames}:"
+                f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s={width}x{height}:fps={fps},"
+                "format=yuv420p"
+            )
+            args = [
+                "-loop",
+                "1",
+                "-i",
+                str(img),
+                "-vf",
+                vf,
+                "-t",
+                f"{per:.3f}",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "veryfast",
+                "-crf",
+                "20",
+                "-an",
+                str(clip),
+            ]
+            await self.run(args)
+            clips.append(clip)
+        concat = out.parent / "kb_concat.txt"
+        concat.write_text("\n".join(f"file '{c.resolve()}'" for c in clips), encoding="utf-8")
+        video_only = out.parent / "kb_video.mp4"
+        await self.run(
+            [
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                str(concat),
+                "-c",
+                "copy",
+                str(video_only),
+            ]
+        )
+        return await self.mux_av(video_only, audio, out)
+
     async def slideshow(
         self,
         images: list[Path],

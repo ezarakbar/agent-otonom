@@ -39,7 +39,7 @@ if [[ ! -f .env ]]; then
   echo "==> Created .env from .env.example"
 fi
 
-mkdir -p outputs jobs logs uploads workflows/_generated models/piper
+mkdir -p outputs jobs logs uploads workflows/_generated models/piper models/sovits
 
 # Optional: Piper TTS (Linux x86_64)
 install_piper() {
